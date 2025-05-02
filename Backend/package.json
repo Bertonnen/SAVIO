@@ -1,13 +1,13 @@
 {
-    "name": "savio-api",
-    "version": "1.0.0",
-    "description": "API para la aplicación SAVIO",
-    "main": "index.js",
-    "scripts": {
-      "start": "node index.js"
-    },
-    "dependencies": {
-      "express": "^4.18.2"
-    }
+  "name": "savios-app-backend",
+  "version": "1.0.0",
+  "main": "Backend/index.js", 
+  "scripts": {
+    "start": "node Backend/index.js" 
+  },
+  "dependencies": {
+    "express": "^4.17.1"
   }
+}
+
   
