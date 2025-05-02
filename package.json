@@ -1,13 +1,11 @@
 {
   "name": "savios-app-backend",
   "version": "1.0.0",
-  "main": "Backend/index.js", 
+  "main": "index.js",
   "scripts": {
-    "start": "node Backend/index.js" 
+    "start": "node index.js"
   },
   "dependencies": {
     "express": "^4.17.1"
   }
 }
-
-  
