@@ -5,7 +5,6 @@
   "scripts": {
     "start": "node index.js"
   },
-  "type": "module",
   "dependencies": {
     "express": "^4.17.1",
     "@supabase/supabase-js": "^2.39.3"
