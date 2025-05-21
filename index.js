@@ -29,10 +29,10 @@ app.post('/login', async (req, res) => {
   }
 
   const { data: users, error } = await supabase
-    .from('usuarios')
-    .select('*')
-    .eq('correo_electronico', correo_electronico)
-    .limit(1);
+  .from('usuarios')
+  .select('*')
+  .ilike('correo_electronico', correo_electronico)
+  .limit(1);
 
   if (error) {
     return res.status(500).json({ error: 'Error al consultar la base de datos' });
