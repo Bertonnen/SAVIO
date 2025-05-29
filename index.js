@@ -1,4 +1,4 @@
-mport express from 'express';
+import express from 'express';
 import { createClient } from '@supabase/supabase-js';
 import jwt from 'jsonwebtoken';
 
@@ -74,5 +74,3 @@ app.post('/login', async (req, res) => {
 app.listen(PORT, () => {
   console.log(Servidor escuchando en el puerto ${PORT});
 });
-
-
