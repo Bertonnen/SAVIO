@@ -1,6 +1,5 @@
 import express from 'express';
 import { createClient } from '@supabase/supabase-js';
-import jwt from 'jsonwebtoken';
 
 const app = express();
 const PORT = process.env.PORT || 3000;
@@ -10,25 +9,11 @@ app.use(express.json());
 // 🔐 Supabase config con tus datos reales
 const supabaseUrl = 'https://nicjdgftcsnoxmmilait.supabase.co';
 const supabaseKey = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Im5pY2pkZ2Z0Y3Nub3htbWlsYWl0Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NDYwMDAwMzEsImV4cCI6MjA2MTU3NjAzMX0.e2vnZAzaXwMMUx7PaZ567knYIivaXhtFY2LLpyE6NG4';
-// Cliente "admin" para login, sin token
-const supabaseAdmin = createClient(supabaseUrl, supabaseKey);
 
-// 🔐 Clave JWT
-const JWT_SECRET = 'MiClaveSuperSecreta123!@#';
+const supabase = createClient(supabaseUrl, supabaseKey);
 
-// Helper para crear cliente Supabase con token (para RLS)
-function createSupabaseClientWithToken(token) {
-  return createClient(supabaseUrl, supabaseKey, {
-    global: {
-      headers: {
-        Authorization: `Bearer ${token}`,
-      },
-    },
-  });
-}
-
-// Middleware para validar token y crear cliente supabase con token
-function authMiddleware(req, res, next) {
+// Middleware para validar token y extraer usuario Supabase
+async function authMiddleware(req, res, next) {
   const authHeader = req.headers.authorization;
   if (!authHeader) return res.status(401).json({ error: 'No autorizado, falta token' });
 
@@ -36,12 +21,26 @@ function authMiddleware(req, res, next) {
   if (!token) return res.status(401).json({ error: 'No autorizado, token mal formado' });
 
   try {
-    const decoded = jwt.verify(token, JWT_SECRET);
-    req.user = decoded; // Guarda datos del usuario en req.user
-    req.supabaseUser = createSupabaseClientWithToken(token); // Cliente supabase con token
+    // Obtener usuario del token con Supabase Auth API
+    const { data: { user }, error } = await supabase.auth.getUser(token);
+
+    if (error || !user) return res.status(401).json({ error: 'Token inválido o expirado' });
+
+    req.user = user;
+
+    // Crear cliente Supabase con token para respetar RLS
+    req.supabaseUser = createClient(supabaseUrl, supabaseKey, {
+      global: {
+        headers: {
+          Authorization: `Bearer ${token}`,
+        },
+      },
+    });
+
     next();
   } catch (err) {
-    return res.status(401).json({ error: 'Token inválido o expirado' });
+    console.error('Error validando token:', err);
+    res.status(401).json({ error: 'Token inválido o expirado' });
   }
 }
 
@@ -50,51 +49,14 @@ app.get('/', (req, res) => {
   res.send('API de SAVIO funcionando correctamente 🚀');
 });
 
-// Ruta de login (sin auth)
-app.post('/login', async (req, res) => {
-  const { correo_electronico, contrasena } = req.body;
-
-  if (!correo_electronico || !contrasena) {
-    return res.status(400).json({ error: 'Faltan el correo o la contraseña' });
-  }
-
-  const { data: users, error } = await supabaseAdmin
-    .from('usuarios')
-    .select('*')
-    .ilike('correo_electronico', correo_electronico)
-    .limit(1);
-
-  if (error) return res.status(500).json({ error: 'Error al consultar la base de datos' });
-  if (!users || users.length === 0) return res.status(401).json({ error: 'Usuario no encontrado' });
-
-  const user = users[0];
-  if (user.contrasena !== contrasena) return res.status(401).json({ error: 'Contraseña incorrecta' });
-
-  const token = jwt.sign(
-    {
-      idusuario: user.idusuario,
-      correo_electronico: user.correo_electronico,
-      rol: user.rol,
-    },
-    JWT_SECRET,
-    { expiresIn: '24h' }
-  );
-
-  res.json({
-    message: 'Inicio de sesión exitoso',
-    token,
-    userId: user.idusuario,
-    nombre: user.nombre,
-    correo_electronico: user.correo_electronico,
-    rol: user.rol,
-  });
-});
+// Ya no es necesario el login en backend, el frontend usará Supabase Auth directamente para login
+// Si quieres, podrías crear rutas para refrescar token o signup, pero no es obligatorio
 
 // Ruta para obtener todos los datos del usuario (usa auth)
 app.get('/usuario/:idusuario/datos', authMiddleware, async (req, res) => {
   const { idusuario } = req.params;
 
-  if (req.user.idusuario !== idusuario)
+  if (req.user.id !== idusuario)
     return res.status(403).json({ error: 'No tienes permiso para ver estos datos' });
 
   try {
@@ -123,7 +85,7 @@ app.get('/usuario/:idusuario/datos', authMiddleware, async (req, res) => {
 app.get('/usuario/:idusuario/notas', authMiddleware, async (req, res) => {
   const { idusuario } = req.params;
 
-  if (req.user.idusuario !== idusuario)
+  if (req.user.id !== idusuario)
     return res.status(403).json({ error: 'No tienes permiso para ver estas notas' });
 
   const { data, error } = await req.supabaseUser.from('notas').select('*').eq('idusuario', idusuario);
@@ -138,7 +100,7 @@ app.post('/usuario/:idusuario/notas', authMiddleware, async (req, res) => {
   const { idusuario } = req.params;
   const { titulo, contenido } = req.body;
 
-  if (req.user.idusuario !== idusuario)
+  if (req.user.id !== idusuario)
     return res.status(403).json({ error: 'No tienes permiso para crear notas para este usuario' });
 
   const { data, error } = await req.supabaseUser.from('notas').insert([{ idusuario, titulo, contenido }]).select();
@@ -156,7 +118,7 @@ app.put('/usuario/:idusuario/notas/:idnota', authMiddleware, async (req, res) =>
   const { idusuario, idnota } = req.params;
   const { titulo, contenido } = req.body;
 
-  if (req.user.idusuario !== idusuario)
+  if (req.user.id !== idusuario)
     return res.status(403).json({ error: 'No tienes permiso para actualizar esta nota' });
 
   const { data, error } = await req.supabaseUser
@@ -175,7 +137,7 @@ app.put('/usuario/:idusuario/notas/:idnota', authMiddleware, async (req, res) =>
 app.delete('/usuario/:idusuario/notas/:idnota', authMiddleware, async (req, res) => {
   const { idusuario, idnota } = req.params;
 
-  if (req.user.idusuario !== idusuario)
+  if (req.user.id !== idusuario)
     return res.status(403).json({ error: 'No tienes permiso para eliminar esta nota' });
 
   const { error } = await req.supabaseUser.from('notas').delete().eq('idnota', idnota).eq('idusuario', idusuario);
