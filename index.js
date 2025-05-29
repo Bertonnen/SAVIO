@@ -1,4 +1,4 @@
-import express from 'express';
+mport express from 'express';
 import { createClient } from '@supabase/supabase-js';
 import jwt from 'jsonwebtoken';
 
@@ -20,7 +20,7 @@ app.get('/', (req, res) => {
   res.send('API de SAVIO funcionando correctamente 🚀');
 });
 
-// 🔐 Ruta de login
+// 🔐 Ruta de login con tu esquema de base de datos real
 app.post('/login', async (req, res) => {
   const { correo_electronico, contrasena } = req.body;
 
@@ -29,10 +29,10 @@ app.post('/login', async (req, res) => {
   }
 
   const { data: users, error } = await supabase
-    .from('usuarios')
-    .select('*')
-    .ilike('correo_electronico', correo_electronico)
-    .limit(1);
+  .from('usuarios')
+  .select('*')
+  .ilike('correo_electronico', correo_electronico)
+  .limit(1);
 
   if (error) {
     return res.status(500).json({ error: 'Error al consultar la base de datos' });
@@ -44,10 +44,12 @@ app.post('/login', async (req, res) => {
 
   const user = users[0];
 
+  // ⚠️ Aquí no usamos bcrypt porque las contraseñas no están encriptadas (de momento)
   if (user.contrasena !== contrasena) {
     return res.status(401).json({ error: 'Contraseña incorrecta' });
   }
 
+  // ✅ Crear token JWT
   const token = jwt.sign(
     {
       idusuario: user.idusuario,
@@ -68,44 +70,9 @@ app.post('/login', async (req, res) => {
   });
 });
 
-// 🆕 NUEVO: Ruta para obtener todos los datos del usuario
-app.get('/usuario/:idusuario/datos', async (req, res) => {
-  const { idusuario } = req.params;
-
-  try {
-    const tablas = [
-      'configuracion',
-      'eventos',
-      'notas',
-      'recordatorios',
-      'productos_lista',
-      'listas_compras'
-    ];
-
-    const resultados = {};
-
-    for (const tabla of tablas) {
-      const { data, error } = await supabase
-        .from(tabla)
-        .select('*')
-        .eq('idusuario', idusuario);
-
-      if (error) {
-        console.error(`Error en tabla ${tabla}:`, error.message);
-        return res.status(500).json({ error: `Error al consultar la tabla ${tabla}` });
-      }
-
-      resultados[tabla] = data;
-    }
-
-    res.json(resultados);
-  } catch (error) {
-    console.error('Error inesperado:', error);
-    res.status(500).json({ error: 'Error interno del servidor' });
-  }
-});
-
 // 🚀 Iniciar servidor
 app.listen(PORT, () => {
-  console.log(`Servidor escuchando en el puerto ${PORT}`);
+  console.log(Servidor escuchando en el puerto ${PORT});
 });
+
+
