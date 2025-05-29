@@ -109,7 +109,10 @@ app.post('/usuario/:idusuario/notas', async (req, res) => {
     .insert([{ idusuario, titulo, contenido }])
     .select();
 
-  if (error) return res.status(500).json({ error: 'Error al crear nota' });
+  if (error) {
+  console.error('Error al crear nota:', error.message);
+  return res.status(500).json({ error: error.message });
+}
 
   res.status(201).json(data[0]);
 });
