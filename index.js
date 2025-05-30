@@ -105,6 +105,21 @@ app.get('/usuario/:idusuario/datos', async (req, res) => {
   }
 });
 
+// 🆕 NUEVO: Obtener notas de un usuario
+app.get('/notas/:idUsuario', async (req, res) => {
+  const { idUsuario } = req.params;
+
+  const { data, error } = await supabase
+    .from('notas')
+    .select('*')
+    .eq('idUsuario', idUsuario)
+    .order('idNota', { ascending: false });
+
+  if (error) return res.status(500).json({ error: 'Error al obtener notas' });
+
+  res.json(data);
+});
+
 // 🚀 Iniciar servidor
 app.listen(PORT, () => {
   console.log(`Servidor escuchando en el puerto ${PORT}`);
