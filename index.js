@@ -127,6 +127,32 @@ app.get('/notas/:idusuario', async (req, res) => {
   }
 });
 
+// 🆕 NUEVO: Crear una nota nueva
+app.post('/notas', async (req, res) => {
+  const { titulo, contenido, idusuario } = req.body;
+
+  if (!titulo || !contenido || !idusuario) {
+    return res.status(400).json({ error: 'Faltan datos obligatorios: titulo, contenido o idusuario' });
+  }
+
+  try {
+    const { data, error } = await supabase
+      .from('notas')
+      .insert([{ titulo, contenido, idusuario }]);
+
+    if (error) {
+      console.error('Error al insertar nota:', error);
+      return res.status(500).json({ error: 'Error al insertar nota' });
+    }
+
+    res.status(201).json({ message: 'Nota creada correctamente', nota: data[0] });
+  } catch (error) {
+    console.error('Error inesperado al crear nota:', error);
+    res.status(500).json({ error: 'Error inesperado' });
+  }
+});
+
+
 
 // 🚀 Iniciar servidor
 app.listen(PORT, () => {
