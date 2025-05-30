@@ -138,7 +138,7 @@ app.post('/notas', async (req, res) => {
   try {
     const { data, error } = await supabase
       .from('notas')
-      .insert([{ titulo, contenido, idUsuario: idusuario }])
+      .insert([{ titulo, contenido, idusuario }])
       .select()
       .single();
 
