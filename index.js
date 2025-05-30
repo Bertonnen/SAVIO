@@ -106,19 +106,27 @@ app.get('/usuario/:idusuario/datos', async (req, res) => {
 });
 
 // 🆕 NUEVO: Obtener notas de un usuario
-app.get('/notas/:idUsuario', async (req, res) => {
-  const { idUsuario } = req.params;
+app.get('/notas/:idusuario', async (req, res) => {
+  const { idusuario } = req.params;
 
-  const { data, error } = await supabase
-    .from('notas')
-    .select('*')
-    .eq('idUsuario', idUsuario)
-    .order('idNota', { ascending: false });
+  try {
+    const { data, error } = await supabase
+      .from('notas')
+      .select('*')
+      .eq('idusuario', idusuario);
 
-  if (error) return res.status(500).json({ error: 'Error al obtener notas' });
+    if (error) {
+      console.error('Error al consultar notas:', error);
+      return res.status(500).json({ error: 'Error al obtener notas' });
+    }
 
-  res.json(data);
+    res.json(data);
+  } catch (error) {
+    console.error('Error inesperado al obtener notas:', error);
+    res.status(500).json({ error: 'Error interno del servidor' });
+  }
 });
+
 
 // 🚀 Iniciar servidor
 app.listen(PORT, () => {
