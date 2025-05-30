@@ -143,9 +143,9 @@ app.post('/notas', async (req, res) => {
       .single();
 
     if (error) {
-      console.error('Error al insertar nota:', error);
-      return res.status(500).json({ error: 'Error al crear nota' });
-    }
+  console.error('Error al insertar nota:', error);
+  return res.status(500).json({ error: error.message || 'Error al crear nota' });
+  }
 
     res.status(201).json({ message: 'Nota creada', nota: data });
   } catch (error) {
@@ -153,9 +153,6 @@ app.post('/notas', async (req, res) => {
     res.status(500).json({ error: 'Error inesperado' });
   }
 });
-
-
-
 
 // 🚀 Iniciar servidor
 app.listen(PORT, () => {
