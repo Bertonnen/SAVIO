@@ -7,20 +7,32 @@ const PORT = process.env.PORT || 3000;
 
 app.use(express.json());
 
-// 🔐 Supabase config con tus datos reales
 const supabaseUrl = 'https://nicjdgftcsnoxmmilait.supabase.co';
 const supabaseKey = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Im5pY2pkZ2Z0Y3Nub3htbWlsYWl0Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NDYwMDAwMzEsImV4cCI6MjA2MTU3NjAzMX0.e2vnZAzaXwMMUx7PaZ567knYIivaXhtFY2LLpyE6NG4';
 const supabase = createClient(supabaseUrl, supabaseKey);
 
-// 🔐 Clave JWT (debería estar en variable de entorno en producción)
 const JWT_SECRET = 'MiClaveSuperSecreta123!@#';
 
-// 🌐 Ruta base para comprobar funcionamiento
+// 🔐 Middleware: verificar token JWT
+const verificarToken = (req, res, next) => {
+  const token = req.headers.authorization?.split(' ')[1];
+  if (!token) return res.status(401).json({ error: 'Token no proporcionado' });
+
+  try {
+    const decoded = jwt.verify(token, JWT_SECRET);
+    req.user = decoded;
+    next();
+  } catch (err) {
+    res.status(403).json({ error: 'Token inválido' });
+  }
+};
+
+// Rutas
+
 app.get('/', (req, res) => {
   res.send('API de SAVIO funcionando correctamente 🚀');
 });
 
-// 🔐 Ruta de login
 app.post('/login', async (req, res) => {
   const { correo_electronico, contrasena } = req.body;
 
@@ -34,13 +46,8 @@ app.post('/login', async (req, res) => {
     .ilike('correo_electronico', correo_electronico)
     .limit(1);
 
-  if (error) {
-    return res.status(500).json({ error: 'Error al consultar la base de datos' });
-  }
-
-  if (!users || users.length === 0) {
-    return res.status(401).json({ error: 'Usuario no encontrado' });
-  }
+  if (error) return res.status(500).json({ error: 'Error al consultar la base de datos' });
+  if (!users || users.length === 0) return res.status(401).json({ error: 'Usuario no encontrado' });
 
   const user = users[0];
 
@@ -68,22 +75,12 @@ app.post('/login', async (req, res) => {
   });
 });
 
-// 🆕 NUEVO: Ruta para obtener todos los datos del usuario
 app.get('/usuario/:idusuario/datos', async (req, res) => {
   const { idusuario } = req.params;
+  const tablas = ['configuracion', 'eventos', 'notas', 'recordatorios', 'productos_lista', 'listas_compras'];
+  const resultados = {};
 
   try {
-    const tablas = [
-      'configuracion',
-      'eventos',
-      'notas',
-      'recordatorios',
-      'productos_lista',
-      'listas_compras'
-    ];
-
-    const resultados = {};
-
     for (const tabla of tablas) {
       const { data, error } = await supabase
         .from(tabla)
@@ -105,7 +102,6 @@ app.get('/usuario/:idusuario/datos', async (req, res) => {
   }
 });
 
-// 🆕 NUEVO: Obtener notas de un usuario
 app.get('/notas/:idusuario', async (req, res) => {
   const { idusuario } = req.params;
 
@@ -127,7 +123,6 @@ app.get('/notas/:idusuario', async (req, res) => {
   }
 });
 
-// Crear nueva nota
 app.post('/notas', async (req, res) => {
   const { titulo, contenido, idusuario } = req.body;
 
@@ -143,9 +138,9 @@ app.post('/notas', async (req, res) => {
       .single();
 
     if (error) {
-  console.error('Error al insertar nota:', error);
-  return res.status(500).json({ error: error.message || 'Error al crear nota' });
-  }
+      console.error('Error al insertar nota:', error);
+      return res.status(500).json({ error: error.message || 'Error al crear nota' });
+    }
 
     res.status(201).json({ message: 'Nota creada', nota: data });
   } catch (error) {
@@ -154,12 +149,28 @@ app.post('/notas', async (req, res) => {
   }
 });
 
-// 🗑️ Eliminar una nota por su ID
-app.delete('/notas/:idnota', async (req, res) => {
+// 🗑️ Eliminar nota segura con token y verificación de propietario
+app.delete('/notas/:idnota', verificarToken, async (req, res) => {
   const { idnota } = req.params;
+  const idusuario = req.user.idusuario;
 
   try {
-    const { data, error } = await supabase
+    // Verificar que la nota existe y pertenece al usuario
+    const { data: nota, error: errorNota } = await supabase
+      .from('notas')
+      .select('idnota, idusuario')
+      .eq('idnota', idnota)
+      .single();
+
+    if (errorNota || !nota) {
+      return res.status(404).json({ error: 'Nota no encontrada' });
+    }
+
+    if (nota.idusuario !== idusuario) {
+      return res.status(403).json({ error: 'No tienes permiso para eliminar esta nota' });
+    }
+
+    const { error } = await supabase
       .from('notas')
       .delete()
       .eq('idnota', idnota);
@@ -169,10 +180,6 @@ app.delete('/notas/:idnota', async (req, res) => {
       return res.status(500).json({ error: 'Error al eliminar nota' });
     }
 
-    if (data.length === 0) {
-      return res.status(404).json({ error: 'Nota no encontrada' });
-    }
-
     res.json({ message: 'Nota eliminada correctamente' });
   } catch (error) {
     console.error('Error inesperado al eliminar nota:', error);
@@ -180,7 +187,6 @@ app.delete('/notas/:idnota', async (req, res) => {
   }
 });
 
-// 🚀 Iniciar servidor
 app.listen(PORT, () => {
   console.log(`Servidor escuchando en el puerto ${PORT}`);
 });
