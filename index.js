@@ -8,12 +8,12 @@ const PORT = process.env.PORT || 3000;
 app.use(express.json());
 
 const supabaseUrl = 'https://nicjdgftcsnoxmmilait.supabase.co';
-const supabaseKey = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Im5pY2pkZ2Z0Y3Nub3htbWlsYWl0Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NDYwMDAwMzEsImV4cCI6MjA2MTU3NjAzMX0.e2vnZAzaXwMMUx7PaZ567knYIivaXhtFY2LLpyE6NG4';
-const supabase = createClient(supabaseUrl, supabaseKey);
+// Usa la clave pública (anon) aquí, no la service_role
+const supabaseAnonKey = 'TU_ANON_KEY_PUBLICA_AQUÍ'; 
 
 const JWT_SECRET = 'MiClaveSuperSecreta123!@#';
 
-// 🔐 Middleware: verificar token JWT
+// Middleware: verificar token JWT y cargar usuario
 const verificarToken = (req, res, next) => {
   const token = req.headers.authorization?.split(' ')[1];
   if (!token) return res.status(401).json({ error: 'Token no proporcionado' });
@@ -21,13 +21,23 @@ const verificarToken = (req, res, next) => {
   try {
     const decoded = jwt.verify(token, JWT_SECRET);
     req.user = decoded;
+    req.token = token; // guardamos token para usar luego en supabase
     next();
   } catch (err) {
     res.status(403).json({ error: 'Token inválido' });
   }
 };
 
-// Rutas
+// Crear cliente Supabase con el token del usuario para que funcione RLS
+const createSupabaseClientWithAuth = (token) => {
+  return createClient(supabaseUrl, supabaseAnonKey, {
+    global: {
+      headers: {
+        Authorization: `Bearer ${token}`,
+      },
+    },
+  });
+};
 
 app.get('/', (req, res) => {
   res.send('API de SAVIO funcionando correctamente 🚀');
@@ -40,7 +50,10 @@ app.post('/login', async (req, res) => {
     return res.status(400).json({ error: 'Faltan el correo o la contraseña' });
   }
 
-  const { data: users, error } = await supabase
+  // Aquí sigue usando el cliente con service_role para login (seguridad controlada)
+  const supabaseService = createClient(supabaseUrl, process.env.SERVICE_ROLE_KEY || 'TU_SERVICE_ROLE_KEY_AQUI');
+
+  const { data: users, error } = await supabaseService
     .from('usuarios')
     .select('*')
     .ilike('correo_electronico', correo_electronico)
@@ -75,14 +88,18 @@ app.post('/login', async (req, res) => {
   });
 });
 
-app.get('/usuario/:idusuario/datos', async (req, res) => {
+// --- Datos generales de usuario, sin usar token porque no filtras por usuario actual, 
+// puedes modificar según convenga ---
+app.get('/usuario/:idusuario/datos', verificarToken, async (req, res) => {
   const { idusuario } = req.params;
   const tablas = ['configuracion', 'eventos', 'notas', 'recordatorios', 'productos_lista', 'listas_compras'];
   const resultados = {};
 
   try {
+    const supabaseUser = createSupabaseClientWithAuth(req.token);
+
     for (const tabla of tablas) {
-      const { data, error } = await supabase
+      const { data, error } = await supabaseUser
         .from(tabla)
         .select('*')
         .eq('idusuario', idusuario);
@@ -102,11 +119,18 @@ app.get('/usuario/:idusuario/datos', async (req, res) => {
   }
 });
 
-app.get('/notas/:idusuario', async (req, res) => {
+app.get('/notas/:idusuario', verificarToken, async (req, res) => {
   const { idusuario } = req.params;
 
+  // Comprobar que el usuario del token coincide con el solicitado, para evitar que lean datos de otros usuarios
+  if (req.user.idusuario !== parseInt(idusuario, 10)) {
+    return res.status(403).json({ error: 'No tienes permiso para ver estas notas' });
+  }
+
   try {
-    const { data, error } = await supabase
+    const supabaseUser = createSupabaseClientWithAuth(req.token);
+
+    const { data, error } = await supabaseUser
       .from('notas')
       .select('*')
       .eq('idusuario', idusuario);
@@ -123,15 +147,22 @@ app.get('/notas/:idusuario', async (req, res) => {
   }
 });
 
-app.post('/notas', async (req, res) => {
+app.post('/notas', verificarToken, async (req, res) => {
   const { titulo, contenido, idusuario } = req.body;
 
   if (!titulo || !contenido || !idusuario) {
     return res.status(400).json({ error: 'Faltan datos obligatorios' });
   }
 
+  // Solo permite crear nota para el usuario autenticado
+  if (req.user.idusuario !== idusuario) {
+    return res.status(403).json({ error: 'No tienes permiso para crear notas para otro usuario' });
+  }
+
   try {
-    const { data, error } = await supabase
+    const supabaseUser = createSupabaseClientWithAuth(req.token);
+
+    const { data, error } = await supabaseUser
       .from('notas')
       .insert([{ titulo, contenido, idusuario }])
       .select()
@@ -149,35 +180,21 @@ app.post('/notas', async (req, res) => {
   }
 });
 
-// 🗑️ Eliminar nota segura con token y verificación de propietario
 app.delete('/notas/:idnota', verificarToken, async (req, res) => {
   const { idnota } = req.params;
-  const idusuario = req.user.idusuario;
 
   try {
-    // Verificar que la nota existe y pertenece al usuario
-    const { data: nota, error: errorNota } = await supabase
-      .from('notas')
-      .select('idnota, idusuario')
-      .eq('idnota', idnota)
-      .single();
+    const supabaseUser = createSupabaseClientWithAuth(req.token);
 
-    if (errorNota || !nota) {
-      return res.status(404).json({ error: 'Nota no encontrada' });
-    }
-
-    if (nota.idusuario !== idusuario) {
-      return res.status(403).json({ error: 'No tienes permiso para eliminar esta nota' });
-    }
-
-    const { error } = await supabase
+    // Intentar borrar; RLS evitará borrar si no es dueño
+    const { error } = await supabaseUser
       .from('notas')
       .delete()
       .eq('idnota', idnota);
 
     if (error) {
       console.error('Error al eliminar nota:', error);
-      return res.status(500).json({ error: 'Error al eliminar nota' });
+      return res.status(403).json({ error: 'No tienes permiso para eliminar esta nota o no existe' });
     }
 
     res.json({ message: 'Nota eliminada correctamente' });
@@ -187,42 +204,15 @@ app.delete('/notas/:idnota', verificarToken, async (req, res) => {
   }
 });
 
-// ✏️ Editar nota existente
-app.put('/notas/:idnota', async (req, res) => {
+app.put('/notas/:idnota', verificarToken, async (req, res) => {
   const { idnota } = req.params;
   const { titulo, contenido } = req.body;
-  const authHeader = req.headers.authorization;
-
-  if (!authHeader || !authHeader.startsWith('Bearer ')) {
-    return res.status(403).json({ error: 'Token no proporcionado' });
-  }
-
-  const token = authHeader.split(' ')[1];
-
-  let payload;
-  try {
-    payload = jwt.verify(token, JWT_SECRET);
-  } catch (error) {
-    return res.status(403).json({ error: 'Token inválido' });
-  }
 
   try {
-    // Verificamos que la nota pertenece al usuario
-    const { data: notaExistente, error: fetchError } = await supabase
-      .from('notas')
-      .select('*')
-      .eq('idnota', idnota)
-      .single();
+    const supabaseUser = createSupabaseClientWithAuth(req.token);
 
-    if (fetchError) {
-      return res.status(404).json({ error: 'Nota no encontrada' });
-    }
-
-    if (notaExistente.idusuario !== payload.idusuario) {
-      return res.status(403).json({ error: 'No tienes permiso para editar esta nota' });
-    }
-
-    const { data, error } = await supabase
+    // Actualizar solo si RLS permite (es dueño)
+    const { data, error } = await supabaseUser
       .from('notas')
       .update({ titulo, contenido })
       .eq('idnota', idnota)
@@ -230,7 +220,8 @@ app.put('/notas/:idnota', async (req, res) => {
       .single();
 
     if (error) {
-      return res.status(500).json({ error: 'Error al actualizar la nota' });
+      console.error('Error al actualizar la nota:', error);
+      return res.status(403).json({ error: 'No tienes permiso para editar esta nota o no existe' });
     }
 
     res.json({ message: 'Nota actualizada correctamente', nota: data });
