@@ -102,8 +102,10 @@ app.get('/usuario/:idusuario/datos', async (req, res) => {
   }
 });
 
+// GET /notas/:idusuario con logs para depuración
 app.get('/notas/:idusuario', async (req, res) => {
   const { idusuario } = req.params;
+  console.log(`[GET /notas/:idusuario] Consultando notas para usuario: ${idusuario}`);
 
   try {
     const { data, error } = await supabase
@@ -112,13 +114,14 @@ app.get('/notas/:idusuario', async (req, res) => {
       .eq('idusuario', idusuario);
 
     if (error) {
-      console.error('Error al consultar notas:', error);
+      console.error('[Supabase Error] al consultar notas:', error);
       return res.status(500).json({ error: 'Error al obtener notas' });
     }
 
+    console.log(`[Supabase Success] Notas encontradas: ${data.length}`);
     res.json(data);
   } catch (error) {
-    console.error('Error inesperado al obtener notas:', error);
+    console.error('[Error inesperado] al obtener notas:', error);
     res.status(500).json({ error: 'Error interno del servidor' });
   }
 });
