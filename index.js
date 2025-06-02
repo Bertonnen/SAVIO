@@ -154,6 +154,32 @@ app.post('/notas', async (req, res) => {
   }
 });
 
+// 🗑️ Eliminar una nota por su ID
+app.delete('/notas/:idnota', async (req, res) => {
+  const { idnota } = req.params;
+
+  try {
+    const { data, error } = await supabase
+      .from('notas')
+      .delete()
+      .eq('idnota', idnota);
+
+    if (error) {
+      console.error('Error al eliminar nota:', error);
+      return res.status(500).json({ error: 'Error al eliminar nota' });
+    }
+
+    if (data.length === 0) {
+      return res.status(404).json({ error: 'Nota no encontrada' });
+    }
+
+    res.json({ message: 'Nota eliminada correctamente' });
+  } catch (error) {
+    console.error('Error inesperado al eliminar nota:', error);
+    res.status(500).json({ error: 'Error inesperado' });
+  }
+});
+
 // 🚀 Iniciar servidor
 app.listen(PORT, () => {
   console.log(`Servidor escuchando en el puerto ${PORT}`);
