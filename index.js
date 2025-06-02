@@ -187,6 +187,59 @@ app.delete('/notas/:idnota', verificarToken, async (req, res) => {
   }
 });
 
+// ✏️ Editar nota existente
+app.put('/notas/:idnota', async (req, res) => {
+  const { idnota } = req.params;
+  const { titulo, contenido } = req.body;
+  const authHeader = req.headers.authorization;
+
+  if (!authHeader || !authHeader.startsWith('Bearer ')) {
+    return res.status(403).json({ error: 'Token no proporcionado' });
+  }
+
+  const token = authHeader.split(' ')[1];
+
+  let payload;
+  try {
+    payload = jwt.verify(token, JWT_SECRET);
+  } catch (error) {
+    return res.status(403).json({ error: 'Token inválido' });
+  }
+
+  try {
+    // Verificamos que la nota pertenece al usuario
+    const { data: notaExistente, error: fetchError } = await supabase
+      .from('notas')
+      .select('*')
+      .eq('idnota', idnota)
+      .single();
+
+    if (fetchError) {
+      return res.status(404).json({ error: 'Nota no encontrada' });
+    }
+
+    if (notaExistente.idusuario !== payload.idusuario) {
+      return res.status(403).json({ error: 'No tienes permiso para editar esta nota' });
+    }
+
+    const { data, error } = await supabase
+      .from('notas')
+      .update({ titulo, contenido })
+      .eq('idnota', idnota)
+      .select()
+      .single();
+
+    if (error) {
+      return res.status(500).json({ error: 'Error al actualizar la nota' });
+    }
+
+    res.json({ message: 'Nota actualizada correctamente', nota: data });
+  } catch (error) {
+    console.error('Error inesperado al editar nota:', error);
+    res.status(500).json({ error: 'Error inesperado' });
+  }
+});
+
 app.listen(PORT, () => {
   console.log(`Servidor escuchando en el puerto ${PORT}`);
 });
