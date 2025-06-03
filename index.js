@@ -243,6 +243,213 @@ app.put('/notas/:idnota', async (req, res) => {
   }
 });
 
+// ✅ Crear nueva lista de compras
+app.post('/listas_compras', verificarToken, async (req, res) => {
+  const { titulo } = req.body;
+  const idusuario = req.user.idusuario;
+
+  if (!titulo) {
+    return res.status(400).json({ error: 'El título es obligatorio' });
+  }
+
+  try {
+    const { data, error } = await supabase
+      .from('listas_compras')
+      .insert([{ titulo, idusuario }])
+      .select()
+      .single();
+
+    if (error) throw error;
+
+    res.status(201).json({ message: 'Lista creada', lista: data });
+  } catch (error) {
+    console.error('Error al crear lista:', error);
+    res.status(500).json({ error: 'Error al crear lista' });
+  }
+});
+
+// ✅ Agregar producto a una lista
+app.post('/productos_lista', verificarToken, async (req, res) => {
+  const { idlista, nombre_producto, cantidad } = req.body;
+  const idusuario = req.user.idusuario;
+
+  if (!idlista || !nombre_producto) {
+    return res.status(400).json({ error: 'Faltan datos obligatorios' });
+  }
+
+  try {
+    const { data, error } = await supabase
+      .from('productos_lista')
+      .insert([{ idlista, nombre_producto, cantidad, comprado: false, idusuario }])
+      .select()
+      .single();
+
+    if (error) throw error;
+
+    res.status(201).json({ message: 'Producto añadido', producto: data });
+  } catch (error) {
+    console.error('Error al añadir producto:', error);
+    res.status(500).json({ error: 'Error al añadir producto' });
+  }
+});
+
+// ✅ Ver todas las listas de compra de un usuario con productos
+app.get('/listas_compras/:idusuario', verificarToken, async (req, res) => {
+  const { idusuario } = req.params;
+
+  if (parseInt(idusuario) !== req.user.idusuario) {
+    return res.status(403).json({ error: 'Acceso no autorizado' });
+  }
+
+  try {
+    const { data: listas, error: errorListas } = await supabase
+      .from('listas_compras')
+      .select('*')
+      .eq('idusuario', idusuario);
+
+    if (errorListas) throw errorListas;
+
+    const resultados = [];
+
+    for (const lista of listas) {
+      const { data: productos, error: errorProductos } = await supabase
+        .from('productos_lista')
+        .select('*')
+        .eq('idlista', lista.idlista);
+
+      if (errorProductos) throw errorProductos;
+
+      resultados.push({
+        ...lista,
+        productos
+      });
+    }
+
+    res.json(resultados);
+  } catch (error) {
+    console.error('Error al obtener listas:', error);
+    res.status(500).json({ error: 'Error al obtener listas de compra' });
+  }
+});
+
+// ✅ Editar título de una lista
+app.put('/listas_compras/:idlista', verificarToken, async (req, res) => {
+  const { idlista } = req.params;
+  const { titulo } = req.body;
+  const idusuario = req.user.idusuario;
+
+  try {
+    const { data: lista, error: errorLista } = await supabase
+      .from('listas_compras')
+      .select('idusuario')
+      .eq('idlista', idlista)
+      .single();
+
+    if (errorLista || !lista) return res.status(404).json({ error: 'Lista no encontrada' });
+
+    if (lista.idusuario !== idusuario) return res.status(403).json({ error: 'No tienes permiso' });
+
+    const { data, error } = await supabase
+      .from('listas_compras')
+      .update({ titulo })
+      .eq('idlista', idlista)
+      .select()
+      .single();
+
+    if (error) throw error;
+
+    res.json({ message: 'Lista actualizada', lista: data });
+  } catch (error) {
+    console.error('Error al actualizar lista:', error);
+    res.status(500).json({ error: 'Error al actualizar lista' });
+  }
+});
+
+// ✅ Editar un producto de una lista
+app.put('/productos_lista/:idproducto', verificarToken, async (req, res) => {
+  const { idproducto } = req.params;
+  const { nombre_producto, cantidad, comprado } = req.body;
+  const idusuario = req.user.idusuario;
+
+  try {
+    const { data: producto, error: errorProducto } = await supabase
+      .from('productos_lista')
+      .select('idusuario')
+      .eq('idproducto', idproducto)
+      .single();
+
+    if (errorProducto || !producto) return res.status(404).json({ error: 'Producto no encontrado' });
+
+    if (producto.idusuario !== idusuario) return res.status(403).json({ error: 'No autorizado' });
+
+    const { data, error } = await supabase
+      .from('productos_lista')
+      .update({ nombre_producto, cantidad, comprado })
+      .eq('idproducto', idproducto)
+      .select()
+      .single();
+
+    if (error) throw error;
+
+    res.json({ message: 'Producto actualizado', producto: data });
+  } catch (error) {
+    console.error('Error al actualizar producto:', error);
+    res.status(500).json({ error: 'Error al actualizar producto' });
+  }
+});
+
+// ✅ Eliminar una lista de compras y sus productos
+app.delete('/listas_compras/:idlista', verificarToken, async (req, res) => {
+  const { idlista } = req.params;
+  const idusuario = req.user.idusuario;
+
+  try {
+    const { data: lista, error: errorLista } = await supabase
+      .from('listas_compras')
+      .select('idusuario')
+      .eq('idlista', idlista)
+      .single();
+
+    if (errorLista || !lista) return res.status(404).json({ error: 'Lista no encontrada' });
+
+    if (lista.idusuario !== idusuario) return res.status(403).json({ error: 'No autorizado' });
+
+    await supabase.from('productos_lista').delete().eq('idlista', idlista);
+    await supabase.from('listas_compras').delete().eq('idlista', idlista);
+
+    res.json({ message: 'Lista y productos eliminados correctamente' });
+  } catch (error) {
+    console.error('Error al eliminar lista:', error);
+    res.status(500).json({ error: 'Error al eliminar lista' });
+  }
+});
+
+// ✅ Eliminar producto individual
+app.delete('/productos_lista/:idproducto', verificarToken, async (req, res) => {
+  const { idproducto } = req.params;
+  const idusuario = req.user.idusuario;
+
+  try {
+    const { data: producto, error: errorProducto } = await supabase
+      .from('productos_lista')
+      .select('idusuario')
+      .eq('idproducto', idproducto)
+      .single();
+
+    if (errorProducto || !producto) return res.status(404).json({ error: 'Producto no encontrado' });
+
+    if (producto.idusuario !== idusuario) return res.status(403).json({ error: 'No autorizado' });
+
+    await supabase.from('productos_lista').delete().eq('idproducto', idproducto);
+
+    res.json({ message: 'Producto eliminado' });
+  } catch (error) {
+    console.error('Error al eliminar producto:', error);
+    res.status(500).json({ error: 'Error al eliminar producto' });
+  }
+});
+
+
 app.listen(PORT, () => {
   console.log(`Servidor escuchando en el puerto ${PORT}`);
 });
