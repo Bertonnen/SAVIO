@@ -294,43 +294,21 @@ app.post('/productos_lista', verificarToken, async (req, res) => {
 });
 
 // ✅ Ver todas las listas de compra de un usuario con productos
-app.get('/listas_compras/:idusuario', verificarToken, async (req, res) => {
-  const { idusuario } = req.params;
+app.get('/listas_compras', verificarToken, async (req, res) => {
+  const idusuario = req.user.idusuario;
 
-  if (parseInt(idusuario) !== req.user.idusuario) {
-    return res.status(403).json({ error: 'Acceso no autorizado' });
+  const { data, error } = await supabase
+    .from('listas_compras')
+    .select('*')
+    .eq('idusuario', idusuario);
+
+  if (error) {
+    return res.status(500).json({ error: 'Error al obtener listas' });
   }
 
-  try {
-    const { data: listas, error: errorListas } = await supabase
-      .from('listas_compras')
-      .select('*')
-      .eq('idusuario', idusuario);
-
-    if (errorListas) throw errorListas;
-
-    const resultados = [];
-
-    for (const lista of listas) {
-      const { data: productos, error: errorProductos } = await supabase
-        .from('productos_lista')
-        .select('*')
-        .eq('idlista', lista.idlista);
-
-      if (errorProductos) throw errorProductos;
-
-      resultados.push({
-        ...lista,
-        productos
-      });
-    }
-
-    res.json(resultados);
-  } catch (error) {
-    console.error('Error al obtener listas:', error);
-    res.status(500).json({ error: 'Error al obtener listas de compra' });
-  }
+  res.json({ listas: data });
 });
+
 
 // ✅ Editar título de una lista
 app.put('/listas_compras/:idlista', verificarToken, async (req, res) => {
