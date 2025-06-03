@@ -293,22 +293,54 @@ app.post('/productos_lista', verificarToken, async (req, res) => {
   }
 });
 
-// ✅ Ver todas las listas de compra de un usuario con productos
+// ✅ Ver todas las listas de compra de un usuario con sus productos
 app.get('/listas_compras', verificarToken, async (req, res) => {
   const idusuario = req.user.idusuario;
 
-  const { data, error } = await supabase
-    .from('listas_compras')
-    .select('*')
-    .eq('idusuario', idusuario);
+  try {
+    // Obtener todas las listas del usuario
+    const { data: listas, error: errorListas } = await supabase
+      .from('listas_compras')
+      .select('*')
+      .eq('idusuario', idusuario);
 
-  if (error) {
-    return res.status(500).json({ error: 'Error al obtener listas' });
+    if (errorListas) {
+      console.error('Error al obtener listas:', errorListas);
+      return res.status(500).json({ error: 'Error al obtener listas' });
+    }
+
+    // Para cada lista, obtener sus productos
+    const listasConProductos = await Promise.all(
+      listas.map(async (lista) => {
+        const { data: productos, error: errorProductos } = await supabase
+          .from('productos_lista')
+          .select('*')
+          .eq('idlista', lista.idlista);
+
+        return {
+          ...lista,
+          productos: productos || [],
+          errorProductos,
+        };
+      })
+    );
+
+    // Filtrar y avisar si alguna lista tuvo error al obtener productos
+    const errores = listasConProductos.filter(l => l.errorProductos);
+
+    if (errores.length > 0) {
+      console.warn('Algunas listas tienen errores al obtener productos');
+    }
+
+    // Limpiar los campos internos de error antes de enviar la respuesta
+    const respuestaFinal = listasConProductos.map(({ errorProductos, ...resto }) => resto);
+
+    res.json({ listas: respuestaFinal });
+  } catch (err) {
+    console.error('Error inesperado:', err);
+    res.status(500).json({ error: 'Error inesperado al obtener listas y productos' });
   }
-
-  res.json({ listas: data });
 });
-
 
 // ✅ Editar título de una lista
 app.put('/listas_compras/:idlista', verificarToken, async (req, res) => {
