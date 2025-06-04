@@ -459,6 +459,92 @@ app.delete('/productos_lista/:idproducto', verificarToken, async (req, res) => {
   }
 });
 
+// ✅ Crear nuevo evento
+app.post('/eventos', verificarToken, async (req, res) => {
+  const { titulo, descripcion, fecha_inicio, fecha_fin } = req.body;
+  const idusuario = req.user.idusuario;
+
+  if (!titulo || !fecha_inicio || !fecha_fin) {
+    return res.status(400).json({ error: 'Faltan datos obligatorios' });
+  }
+
+  try {
+    const { data, error } = await supabase
+      .from('eventos')
+      .insert([{ titulo, descripcion, fecha_inicio, fecha_fin, idusuario }])
+      .select()
+      .single();
+
+    if (error) throw error;
+
+    res.status(201).json({ message: 'Evento creado', evento: data });
+  } catch (error) {
+    console.error('Error al crear evento:', error);
+    res.status(500).json({ error: 'Error al crear evento' });
+  }
+});
+
+// ✅ Actualizar evento existente
+app.put('/eventos/:idevento', verificarToken, async (req, res) => {
+  const { idevento } = req.params;
+  const { titulo, descripcion, fecha_inicio, fecha_fin } = req.body;
+  const idusuario = req.user.idusuario;
+
+  try {
+    const { data: evento, error: errorEvento } = await supabase
+      .from('eventos')
+      .select('idusuario')
+      .eq('idevento', idevento)
+      .single();
+
+    if (errorEvento || !evento) return res.status(404).json({ error: 'Evento no encontrado' });
+    if (evento.idusuario !== idusuario) return res.status(403).json({ error: 'No autorizado' });
+
+    const { data, error } = await supabase
+      .from('eventos')
+      .update({ titulo, descripcion, fecha_inicio, fecha_fin })
+      .eq('idevento', idevento)
+      .select()
+      .single();
+
+    if (error) throw error;
+
+    res.json({ message: 'Evento actualizado', evento: data });
+  } catch (error) {
+    console.error('Error al actualizar evento:', error);
+    res.status(500).json({ error: 'Error al actualizar evento' });
+  }
+});
+
+// ✅ Eliminar evento
+app.delete('/eventos/:idevento', verificarToken, async (req, res) => {
+  const { idevento } = req.params;
+  const idusuario = req.user.idusuario;
+
+  try {
+    const { data: evento, error: errorEvento } = await supabase
+      .from('eventos')
+      .select('idusuario')
+      .eq('idevento', idevento)
+      .single();
+
+    if (errorEvento || !evento) return res.status(404).json({ error: 'Evento no encontrado' });
+    if (evento.idusuario !== idusuario) return res.status(403).json({ error: 'No autorizado' });
+
+    const { error } = await supabase
+      .from('eventos')
+      .delete()
+      .eq('idevento', idevento);
+
+    if (error) throw error;
+
+    res.json({ message: 'Evento eliminado correctamente' });
+  } catch (error) {
+    console.error('Error al eliminar evento:', error);
+    res.status(500).json({ error: 'Error al eliminar evento' });
+  }
+});
+
 
 app.listen(PORT, () => {
   console.log(`Servidor escuchando en el puerto ${PORT}`);
