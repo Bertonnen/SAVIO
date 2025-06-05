@@ -621,6 +621,71 @@ app.delete('/eventos/:idevento', verificarToken, async (req, res) => {
   }
 });
 
+// 📥 Crear recordatorio
+app.post('/recordatorios', async (req, res) => {
+  const { mensaje, fecha } = req.body;
+
+  if (!mensaje || !fecha) {
+    return res.status(400).json({ error: 'Mensaje y fecha son requeridos.' });
+  }
+
+  try {
+    const nuevoRecordatorio = await db.recordatorio.create({
+      data: {
+        mensaje,
+        fecha: new Date(fecha),
+        completado: false,
+      },
+    });
+    res.status(201).json(nuevoRecordatorio);
+  } catch (error) {
+    console.error('Error al crear el recordatorio:', error);
+    res.status(500).json({ error: 'Error interno al crear el recordatorio.' });
+  }
+});
+
+// 📖 Obtener todos los recordatorios
+app.get('/recordatorios', async (req, res) => {
+  try {
+    const recordatorios = await db.recordatorio.findMany();
+    res.status(200).json(recordatorios);
+  } catch (error) {
+    console.error('Error al obtener los recordatorios:', error);
+    res.status(500).json({ error: 'Error interno al obtener los recordatorios.' });
+  }
+});
+
+// ✅ Marcar un recordatorio como completado
+app.put('/recordatorios/:id/completar', async (req, res) => {
+  const { id } = req.params;
+
+  try {
+    const recordatorio = await db.recordatorio.update({
+      where: { id: parseInt(id) },
+      data: { completado: true },
+    });
+    res.status(200).json(recordatorio);
+  } catch (error) {
+    console.error('Error al completar el recordatorio:', error);
+    res.status(500).json({ error: 'Error interno al completar el recordatorio.' });
+  }
+});
+
+// 🗑️ Eliminar recordatorio
+app.delete('/recordatorios/:id', async (req, res) => {
+  const { id } = req.params;
+
+  try {
+    await db.recordatorio.delete({
+      where: { id: parseInt(id) },
+    });
+    res.status(204).send();
+  } catch (error) {
+    console.error('Error al eliminar el recordatorio:', error);
+    res.status(500).json({ error: 'Error interno al eliminar el recordatorio.' });
+  }
+});
+
 // Iniciar servidor
 app.listen(PORT, () => {
   console.log(`Servidor escuchando en el puerto ${PORT}`);
