@@ -27,10 +27,97 @@ const verificarToken = (req, res, next) => {
   }
 };
 
-// Rutas
-
+// Rutas básicas
 app.get('/', (req, res) => {
   res.send('API de SAVIO funcionando correctamente 🚀');
+});
+
+// 👤 Rutas de autenticación y usuarios
+app.post('/register', async (req, res) => {
+  const { nombre, apellidos, correo_electronico, contrasena, fecha_nacimiento, telefono } = req.body;
+
+  // Validar campos requeridos
+  if (!nombre || !correo_electronico || !contrasena) {
+    return res.status(400).json({ error: 'Los campos nombre, correo y contraseña son obligatorios' });
+  }
+
+  // Validar formato de correo electrónico
+  const emailRegex = /^[^\\s@]+@[^\\s@]+\\.[^\\s@]+$/;
+  if (!emailRegex.test(correo_electronico)) {
+    return res.status(400).json({ error: 'Formato de correo electrónico inválido' });
+  }
+
+  // Validar contraseña segura
+  const passwordRegex = /^(?=.*[a-z])(?=.*[A-Z])(?=.*\\d)(?=.*[@$!%*?&])[A-Za-z\\d@$!%*?&]{8,}$/;
+  if (!passwordRegex.test(contrasena)) {
+    return res.status(400).json({
+      error: 'La contraseña debe tener al menos 8 caracteres, incluir mayúsculas, minúsculas, números y caracteres especiales'
+    });
+  }
+
+  try {
+    // Verificar si el correo ya existe
+    const { data: existingUser, error: searchError } = await supabase
+      .from('usuarios')
+      .select('correo_electronico')
+      .eq('correo_electronico', correo_electronico)
+      .single();
+
+    if (searchError && searchError.code !== 'PGRST116') {
+      console.error('Error al buscar usuario existente:', searchError);
+      return res.status(500).json({ error: 'Error al verificar disponibilidad del correo' });
+    }
+
+    if (existingUser) {
+      return res.status(400).json({ error: 'El correo electrónico ya está registrado' });
+    }
+
+    // Crear el nuevo usuario
+    const { data, error } = await supabase
+      .from('usuarios')
+      .insert([{
+        nombre,
+        apellidos,
+        correo_electronico,
+        contrasena,
+        fecha_nacimiento,
+        telefono,
+        fecha_creacion: new Date().toISOString(),
+        rol: 'usuario'
+      }])
+      .select()
+      .single();
+
+    if (error) {
+      console.error('Error al crear usuario:', error);
+      return res.status(500).json({ error: 'Error al registrar usuario' });
+    }
+
+    // Generar token JWT para el nuevo usuario
+    const token = jwt.sign(
+      {
+        idusuario: data.idusuario,
+        correo_electronico: data.correo_electronico,
+        rol: data.rol
+      },
+      JWT_SECRET,
+      { expiresIn: '24h' }
+    );
+
+    // Enviar respuesta exitosa
+    res.status(201).json({
+      message: 'Usuario registrado exitosamente',
+      token,
+      userId: data.idusuario,
+      nombre: data.nombre,
+      correo_electronico: data.correo_electronico,
+      rol: data.rol
+    });
+
+  } catch (error) {
+    console.error('Error inesperado al registrar usuario:', error);
+    res.status(500).json({ error: 'Error interno del servidor' });
+  }
 });
 
 app.post('/login', async (req, res) => {
@@ -102,7 +189,7 @@ app.get('/usuario/:idusuario/datos', async (req, res) => {
   }
 });
 
-// GET /notas/:idusuario con logs para depuración
+// 📝 Rutas de notas
 app.get('/notas/:idusuario', async (req, res) => {
   const { idusuario } = req.params;
   console.log(`[GET /notas/:idusuario] Consultando notas para usuario: ${idusuario}`);
@@ -152,45 +239,6 @@ app.post('/notas', async (req, res) => {
   }
 });
 
-// 🗑️ Eliminar nota segura con token y verificación de propietario
-app.delete('/notas/:idnota', verificarToken, async (req, res) => {
-  const { idnota } = req.params;
-  const idusuario = req.user.idusuario;
-
-  try {
-    // Verificar que la nota existe y pertenece al usuario
-    const { data: nota, error: errorNota } = await supabase
-      .from('notas')
-      .select('idnota, idusuario')
-      .eq('idnota', idnota)
-      .single();
-
-    if (errorNota || !nota) {
-      return res.status(404).json({ error: 'Nota no encontrada' });
-    }
-
-    if (nota.idusuario !== idusuario) {
-      return res.status(403).json({ error: 'No tienes permiso para eliminar esta nota' });
-    }
-
-    const { error } = await supabase
-      .from('notas')
-      .delete()
-      .eq('idnota', idnota);
-
-    if (error) {
-      console.error('Error al eliminar nota:', error);
-      return res.status(500).json({ error: 'Error al eliminar nota' });
-    }
-
-    res.json({ message: 'Nota eliminada correctamente' });
-  } catch (error) {
-    console.error('Error inesperado al eliminar nota:', error);
-    res.status(500).json({ error: 'Error inesperado' });
-  }
-});
-
-// ✏️ Editar nota existente
 app.put('/notas/:idnota', async (req, res) => {
   const { idnota } = req.params;
   const { titulo, contenido } = req.body;
@@ -243,7 +291,43 @@ app.put('/notas/:idnota', async (req, res) => {
   }
 });
 
-// ✅ Crear nueva lista de compras
+app.delete('/notas/:idnota', verificarToken, async (req, res) => {
+  const { idnota } = req.params;
+  const idusuario = req.user.idusuario;
+
+  try {
+    const { data: nota, error: errorNota } = await supabase
+      .from('notas')
+      .select('idnota, idusuario')
+      .eq('idnota', idnota)
+      .single();
+
+    if (errorNota || !nota) {
+      return res.status(404).json({ error: 'Nota no encontrada' });
+    }
+
+    if (nota.idusuario !== idusuario) {
+      return res.status(403).json({ error: 'No tienes permiso para eliminar esta nota' });
+    }
+
+    const { error } = await supabase
+      .from('notas')
+      .delete()
+      .eq('idnota', idnota);
+
+    if (error) {
+      console.error('Error al eliminar nota:', error);
+      return res.status(500).json({ error: 'Error al eliminar nota' });
+    }
+
+    res.json({ message: 'Nota eliminada correctamente' });
+  } catch (error) {
+    console.error('Error inesperado al eliminar nota:', error);
+    res.status(500).json({ error: 'Error inesperado' });
+  }
+});
+
+// 🛒 Rutas de listas de compras
 app.post('/listas_compras', verificarToken, async (req, res) => {
   const { titulo } = req.body;
   const idusuario = req.user.idusuario;
@@ -268,7 +352,104 @@ app.post('/listas_compras', verificarToken, async (req, res) => {
   }
 });
 
-// ✅ Agregar producto a una lista
+app.get('/listas_compras', verificarToken, async (req, res) => {
+  const idusuario = req.user.idusuario;
+
+  try {
+    const { data: listas, error: errorListas } = await supabase
+      .from('listas_compras')
+      .select('*')
+      .eq('idusuario', idusuario);
+
+    if (errorListas) {
+      console.error('Error al obtener listas:', errorListas);
+      return res.status(500).json({ error: 'Error al obtener listas' });
+    }
+
+    const listasConProductos = await Promise.all(
+      listas.map(async (lista) => {
+        const { data: productos, error: errorProductos } = await supabase
+          .from('productos_lista')
+          .select('*')
+          .eq('idlista', lista.idlista);
+
+        return {
+          ...lista,
+          productos: productos || [],
+          errorProductos,
+        };
+      })
+    );
+
+    const errores = listasConProductos.filter(l => l.errorProductos);
+    if (errores.length > 0) {
+      console.warn('Algunas listas tienen errores al obtener productos');
+    }
+
+    const respuestaFinal = listasConProductos.map(({ errorProductos, ...resto }) => resto);
+    res.json({ listas: respuestaFinal });
+  } catch (err) {
+    console.error('Error inesperado:', err);
+    res.status(500).json({ error: 'Error inesperado al obtener listas y productos' });
+  }
+});
+
+app.put('/listas_compras/:idlista', verificarToken, async (req, res) => {
+  const { idlista } = req.params;
+  const { titulo } = req.body;
+  const idusuario = req.user.idusuario;
+
+  try {
+    const { data: lista, error: errorLista } = await supabase
+      .from('listas_compras')
+      .select('idusuario')
+      .eq('idlista', idlista)
+      .single();
+
+    if (errorLista || !lista) return res.status(404).json({ error: 'Lista no encontrada' });
+    if (lista.idusuario !== idusuario) return res.status(403).json({ error: 'No tienes permiso' });
+
+    const { data, error } = await supabase
+      .from('listas_compras')
+      .update({ titulo })
+      .eq('idlista', idlista)
+      .select()
+      .single();
+
+    if (error) throw error;
+
+    res.json({ message: 'Lista actualizada', lista: data });
+  } catch (error) {
+    console.error('Error al actualizar lista:', error);
+    res.status(500).json({ error: 'Error al actualizar lista' });
+  }
+});
+
+app.delete('/listas_compras/:idlista', verificarToken, async (req, res) => {
+  const { idlista } = req.params;
+  const idusuario = req.user.idusuario;
+
+  try {
+    const { data: lista, error: errorLista } = await supabase
+      .from('listas_compras')
+      .select('idusuario')
+      .eq('idlista', idlista)
+      .single();
+
+    if (errorLista || !lista) return res.status(404).json({ error: 'Lista no encontrada' });
+    if (lista.idusuario !== idusuario) return res.status(403).json({ error: 'No autorizado' });
+
+    await supabase.from('productos_lista').delete().eq('idlista', idlista);
+    await supabase.from('listas_compras').delete().eq('idlista', idlista);
+
+    res.json({ message: 'Lista y productos eliminados correctamente' });
+  } catch (error) {
+    console.error('Error al eliminar lista:', error);
+    res.status(500).json({ error: 'Error al eliminar lista' });
+  }
+});
+
+// 📦 Rutas de productos
 app.post('/productos_lista', verificarToken, async (req, res) => {
   const { idlista, nombre_producto, cantidad } = req.body;
   const idusuario = req.user.idusuario;
@@ -293,89 +474,6 @@ app.post('/productos_lista', verificarToken, async (req, res) => {
   }
 });
 
-// ✅ Ver todas las listas de compra de un usuario con sus productos
-app.get('/listas_compras', verificarToken, async (req, res) => {
-  const idusuario = req.user.idusuario;
-
-  try {
-    // Obtener todas las listas del usuario
-    const { data: listas, error: errorListas } = await supabase
-      .from('listas_compras')
-      .select('*')
-      .eq('idusuario', idusuario);
-
-    if (errorListas) {
-      console.error('Error al obtener listas:', errorListas);
-      return res.status(500).json({ error: 'Error al obtener listas' });
-    }
-
-    // Para cada lista, obtener sus productos
-    const listasConProductos = await Promise.all(
-      listas.map(async (lista) => {
-        const { data: productos, error: errorProductos } = await supabase
-          .from('productos_lista')
-          .select('*')
-          .eq('idlista', lista.idlista);
-
-        return {
-          ...lista,
-          productos: productos || [],
-          errorProductos,
-        };
-      })
-    );
-
-    // Filtrar y avisar si alguna lista tuvo error al obtener productos
-    const errores = listasConProductos.filter(l => l.errorProductos);
-
-    if (errores.length > 0) {
-      console.warn('Algunas listas tienen errores al obtener productos');
-    }
-
-    // Limpiar los campos internos de error antes de enviar la respuesta
-    const respuestaFinal = listasConProductos.map(({ errorProductos, ...resto }) => resto);
-
-    res.json({ listas: respuestaFinal });
-  } catch (err) {
-    console.error('Error inesperado:', err);
-    res.status(500).json({ error: 'Error inesperado al obtener listas y productos' });
-  }
-});
-
-// ✅ Editar título de una lista
-app.put('/listas_compras/:idlista', verificarToken, async (req, res) => {
-  const { idlista } = req.params;
-  const { titulo } = req.body;
-  const idusuario = req.user.idusuario;
-
-  try {
-    const { data: lista, error: errorLista } = await supabase
-      .from('listas_compras')
-      .select('idusuario')
-      .eq('idlista', idlista)
-      .single();
-
-    if (errorLista || !lista) return res.status(404).json({ error: 'Lista no encontrada' });
-
-    if (lista.idusuario !== idusuario) return res.status(403).json({ error: 'No tienes permiso' });
-
-    const { data, error } = await supabase
-      .from('listas_compras')
-      .update({ titulo })
-      .eq('idlista', idlista)
-      .select()
-      .single();
-
-    if (error) throw error;
-
-    res.json({ message: 'Lista actualizada', lista: data });
-  } catch (error) {
-    console.error('Error al actualizar lista:', error);
-    res.status(500).json({ error: 'Error al actualizar lista' });
-  }
-});
-
-// ✅ Editar un producto de una lista
 app.put('/productos_lista/:idproducto', verificarToken, async (req, res) => {
   const { idproducto } = req.params;
   const { nombre_producto, cantidad, comprado } = req.body;
@@ -389,7 +487,6 @@ app.put('/productos_lista/:idproducto', verificarToken, async (req, res) => {
       .single();
 
     if (errorProducto || !producto) return res.status(404).json({ error: 'Producto no encontrado' });
-
     if (producto.idusuario !== idusuario) return res.status(403).json({ error: 'No autorizado' });
 
     const { data, error } = await supabase
@@ -408,33 +505,6 @@ app.put('/productos_lista/:idproducto', verificarToken, async (req, res) => {
   }
 });
 
-// ✅ Eliminar una lista de compras y sus productos
-app.delete('/listas_compras/:idlista', verificarToken, async (req, res) => {
-  const { idlista } = req.params;
-  const idusuario = req.user.idusuario;
-
-  try {
-    const { data: lista, error: errorLista } = await supabase
-      .from('listas_compras')
-      .select('idusuario')
-      .eq('idlista', idlista)
-      .single();
-
-    if (errorLista || !lista) return res.status(404).json({ error: 'Lista no encontrada' });
-
-    if (lista.idusuario !== idusuario) return res.status(403).json({ error: 'No autorizado' });
-
-    await supabase.from('productos_lista').delete().eq('idlista', idlista);
-    await supabase.from('listas_compras').delete().eq('idlista', idlista);
-
-    res.json({ message: 'Lista y productos eliminados correctamente' });
-  } catch (error) {
-    console.error('Error al eliminar lista:', error);
-    res.status(500).json({ error: 'Error al eliminar lista' });
-  }
-});
-
-// ✅ Eliminar producto individual
 app.delete('/productos_lista/:idproducto', verificarToken, async (req, res) => {
   const { idproducto } = req.params;
   const idusuario = req.user.idusuario;
@@ -447,7 +517,6 @@ app.delete('/productos_lista/:idproducto', verificarToken, async (req, res) => {
       .single();
 
     if (errorProducto || !producto) return res.status(404).json({ error: 'Producto no encontrado' });
-
     if (producto.idusuario !== idusuario) return res.status(403).json({ error: 'No autorizado' });
 
     await supabase.from('productos_lista').delete().eq('idproducto', idproducto);
@@ -459,7 +528,7 @@ app.delete('/productos_lista/:idproducto', verificarToken, async (req, res) => {
   }
 });
 
-// ✅ Crear nuevo evento
+// 📅 Rutas de eventos
 app.post('/eventos', verificarToken, async (req, res) => {
   const { titulo, descripcion, fecha_inicio, fecha_fin } = req.body;
   const idusuario = req.user.idusuario;
@@ -484,7 +553,6 @@ app.post('/eventos', verificarToken, async (req, res) => {
   }
 });
 
-// ✅ Actualizar evento existente
 app.put('/eventos/:idevento', verificarToken, async (req, res) => {
   const { idevento } = req.params;
   const { titulo, descripcion, fecha_inicio, fecha_fin } = req.body;
@@ -516,7 +584,6 @@ app.put('/eventos/:idevento', verificarToken, async (req, res) => {
   }
 });
 
-// ✅ Eliminar evento
 app.delete('/eventos/:idevento', verificarToken, async (req, res) => {
   const { idevento } = req.params;
   const idusuario = req.user.idusuario;
@@ -545,98 +612,7 @@ app.delete('/eventos/:idevento', verificarToken, async (req, res) => {
   }
 });
 
-// 👤 Registrar nuevo usuario
-app.post('/register', async (req, res) => {
-  const { nombre, apellidos, correo_electronico, contrasena, fecha_nacimiento, telefono } = req.body;
-
-  // Validar campos requeridos
-  if (!nombre || !correo_electronico || !contrasena) {
-    return res.status(400).json({ error: 'Los campos nombre, correo y contraseña son obligatorios' });
-  }
-
-  // Validar formato de correo electrónico
-  const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
-  if (!emailRegex.test(correo_electronico)) {
-    return res.status(400).json({ error: 'Formato de correo electrónico inválido' });
-  }
-
-  // Validar contraseña segura (mínimo 8 caracteres, mayúsculas, minúsculas, números y caracteres especiales)
-  const passwordRegex = /^(?=.*[a-z])(?=.*[A-Z])(?=.*\d)(?=.*[@$!%*?&])[A-Za-z\d@$!%*?&]{8,}$/;
-  if (!passwordRegex.test(contrasena)) {
-    return res.status(400).json({ 
-      error: 'La contraseña debe tener al menos 8 caracteres, incluir mayúsculas, minúsculas, números y caracteres especiales' 
-    });
-  }
-
-  try {
-    // Verificar si el correo ya existe
-    const { data: existingUser, error: searchError } = await supabase
-      .from('usuarios')
-      .select('correo_electronico')
-      .eq('correo_electronico', correo_electronico)
-      .single();
-
-    if (searchError && searchError.code !== 'PGRST116') {
-      console.error('Error al buscar usuario existente:', searchError);
-      return res.status(500).json({ error: 'Error al verificar disponibilidad del correo' });
-    }
-
-    if (existingUser) {
-      return res.status(400).json({ error: 'El correo electrónico ya está registrado' });
-    }
-
-    // Crear el nuevo usuario
-    const { data, error } = await supabase
-      .from('usuarios')
-      .insert([{
-        nombre,
-        apellidos,
-        correo_electronico,
-        contrasena,
-        fecha_nacimiento,
-        telefono,
-        fecha_creacion: new Date().toISOString(),
-        rol: 'usuario' // Rol por defecto para nuevos usuarios
-      }])
-      .select()
-      .single();
-
-    if (error) {
-      console.error('Error al crear usuario:', error);
-      return res.status(500).json({ error: 'Error al registrar usuario' });
-    }
-
-    // Generar token JWT para el nuevo usuario
-    const token = jwt.sign(
-      {
-        idusuario: data.idusuario,
-        correo_electronico: data.correo_electronico,
-        rol: data.rol
-      },
-      JWT_SECRET,
-      { expiresIn: '24h' }
-    );
-
-    // Enviar respuesta exitosa
-    res.status(201).json({
-      message: 'Usuario registrado exitosamente',
-      token,
-      userId: data.idusuario,
-      nombre: data.nombre,
-      correo_electronico: data.correo_electronico,
-      rol: data.rol
-    });
-
-  } catch (error) {
-    console.error('Error inesperado al registrar usuario:', error);
-    res.status(500).json({ error: 'Error interno del servidor' });
-  }
-});
-
-app.listen(PORT, () => {
-  console.log(`Servidor escuchando en el puerto ${PORT}`);
-});
-
+// Iniciar servidor
 app.listen(PORT, () => {
   console.log(`Servidor escuchando en el puerto ${PORT}`);
 });
