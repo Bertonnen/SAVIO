@@ -43,13 +43,13 @@ app.post('/register', async (req, res) => {
   }
 
   // Validar formato de correo electrónico
-  const emailRegex = /^[^\\s@]+@[^\\s@]+\\.[^\\s@]+$/;
+  const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
   if (!emailRegex.test(correo_electronico)) {
     return res.status(400).json({ error: 'Formato de correo electrónico inválido' });
   }
 
   // Validar contraseña segura
-  const passwordRegex = /^(?=.*[a-z])(?=.*[A-Z])(?=.*\\d)(?=.*[@$!%*?&])[A-Za-z\\d@$!%*?&]{8,}$/;
+  const passwordRegex = /^(?=.*[a-z])(?=.*[A-Z])(?=.*\d)(?=.*[@$!%*?&])[A-Za-z\d@$!%*?&]{8,}$/;
   if (!passwordRegex.test(contrasena)) {
     return res.status(400).json({
       error: 'La contraseña debe tener al menos 8 caracteres, incluir mayúsculas, minúsculas, números y caracteres especiales'
@@ -73,14 +73,18 @@ app.post('/register', async (req, res) => {
       return res.status(400).json({ error: 'El correo electrónico ya está registrado' });
     }
 
-    // Crear el nuevo usuario
+    // Hashear la contraseña antes de guardar
+    const saltRounds = 10;
+    const hashedPassword = await bcrypt.hash(contrasena, saltRounds);
+
+    // Insertar el usuario con la contraseña hasheada
     const { data, error } = await supabase
       .from('usuarios')
       .insert([{
         nombre,
         apellidos,
         correo_electronico,
-        contrasena,
+        contrasena: hashedPassword,
         fecha_nacimiento,
         telefono,
         fecha_creacion: new Date().toISOString(),
@@ -115,11 +119,13 @@ app.post('/register', async (req, res) => {
       rol: data.rol
     });
 
-  } catch (error) {
-    console.error('Error inesperado al registrar usuario:', error);
+  } catch (err) {
+    console.error('Error inesperado al registrar usuario:', err);
     res.status(500).json({ error: 'Error interno del servidor' });
   }
 });
+
+
 
 app.post('/login', async (req, res) => {
   const { correo_electronico, contrasena } = req.body;
@@ -139,7 +145,9 @@ app.post('/login', async (req, res) => {
 
   const user = users[0];
 
-  if (user.contrasena !== contrasena) {
+  // Comparar la contraseña con bcrypt
+  const isPasswordValid = await bcrypt.compare(contrasena, user.contrasena);
+  if (!isPasswordValid) {
     return res.status(401).json({ error: 'Contraseña incorrecta' });
   }
 
