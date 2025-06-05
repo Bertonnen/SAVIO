@@ -622,68 +622,146 @@ app.delete('/eventos/:idevento', verificarToken, async (req, res) => {
 });
 
 // 📥 Crear recordatorio
-app.post('/recordatorios', async (req, res) => {
-  const { mensaje, fecha } = req.body;
+app.post('/recordatorios', verificarToken, async (req, res) => {
+  const { titulo, descripcion, fecha_recordatorio, frecuencia } = req.body;
+  const idusuario = req.user.idusuario; // Obtenido del token JWT
 
-  if (!mensaje || !fecha) {
-    return res.status(400).json({ error: 'Mensaje y fecha son requeridos.' });
-  }
+  if (!titulo || !fecha_recordatorio || !idusuario) {
+    return res.status(400).json({ error: 'Título, fecha del recordatorio y ID de usuario son requeridos.' });
+  }
 
-  try {
-    const nuevoRecordatorio = await db.recordatorio.create({
-      data: {
-        mensaje,
-        fecha: new Date(fecha),
-        completado: false,
-      },
-    });
-    res.status(201).json(nuevoRecordatorio);
-  } catch (error) {
-    console.error('Error al crear el recordatorio:', error);
-    res.status(500).json({ error: 'Error interno al crear el recordatorio.' });
-  }
+  try {
+    const { data, error } = await supabase
+      .from('recordatorios')
+      .insert([
+        {
+          titulo,
+          descripcion,
+          fecha_recordatorio, // Supabase manejará el formato timestamp
+          frecuencia,
+          idusuario,
+        },
+      ])
+      .select() // Para retornar los datos del recordatorio creado
+      .single(); // Esperamos solo un registro
+
+    if (error) {
+      console.error('Error al crear el recordatorio en Supabase:', error);
+      return res.status(500).json({ error: 'Error al crear el recordatorio.' });
+    }
+
+    res.status(201).json({ message: 'Recordatorio creado exitosamente', recordatorio: data });
+  } catch (error) {
+    console.error('Error inesperado al crear el recordatorio:', error);
+    res.status(500).json({ error: 'Error interno del servidor al crear el recordatorio.' });
+  }
 });
 
-// 📖 Obtener todos los recordatorios
-app.get('/recordatorios', async (req, res) => {
-  try {
-    const recordatorios = await db.recordatorio.findMany();
-    res.status(200).json(recordatorios);
-  } catch (error) {
-    console.error('Error al obtener los recordatorios:', error);
-    res.status(500).json({ error: 'Error interno al obtener los recordatorios.' });
-  }
+// 📖 Obtener todos los recordatorios de un usuario
+app.get('/recordatorios', verificarToken, async (req, res) => {
+  const idusuario = req.user.idusuario; // Obtenido del token JWT
+
+  try {
+    const { data, error } = await supabase
+      .from('recordatorios')
+      .select('*')
+      .eq('idusuario', idusuario); // Filtrar por el usuario autenticado
+
+    if (error) {
+      console.error('Error al obtener los recordatorios desde Supabase:', error);
+      return res.status(500).json({ error: 'Error al obtener los recordatorios.' });
+    }
+
+    res.status(200).json(data);
+  } catch (error) {
+    console.error('Error inesperado al obtener los recordatorios:', error);
+    res.status(500).json({ error: 'Error interno del servidor al obtener los recordatorios.' });
+  }
 });
 
-// ✅ Marcar un recordatorio como completado
-app.put('/recordatorios/:id/completar', async (req, res) => {
-  const { id } = req.params;
+// ✅ Actualizar un recordatorio (ej. marcar como completado, cambiar mensaje)
+app.put('/recordatorios/:idrecordatorio', verificarToken, async (req, res) => {
+  const { idrecordatorio } = req.params;
+  const { titulo, descripcion, fecha_recordatorio, frecuencia } = req.body;
+  const idusuario = req.user.idusuario;
 
-  try {
-    const recordatorio = await db.recordatorio.update({
-      where: { id: parseInt(id) },
-      data: { completado: true },
-    });
-    res.status(200).json(recordatorio);
-  } catch (error) {
-    console.error('Error al completar el recordatorio:', error);
-    res.status(500).json({ error: 'Error interno al completar el recordatorio.' });
-  }
+  if (!idrecordatorio) {
+    return res.status(400).json({ error: 'ID del recordatorio es requerido.' });
+  }
+
+  try {
+    // Primero, verificar que el recordatorio pertenece al usuario autenticado
+    const { data: existingReminder, error: fetchError } = await supabase
+      .from('recordatorios')
+      .select('idusuario')
+      .eq('idrecordatorio', idrecordatorio)
+      .single();
+
+    if (fetchError || !existingReminder) {
+      return res.status(404).json({ error: 'Recordatorio no encontrado.' });
+    }
+    if (existingReminder.idusuario !== idusuario) {
+      return res.status(403).json({ error: 'No tienes permiso para actualizar este recordatorio.' });
+    }
+
+    const { data, error } = await supabase
+      .from('recordatorios')
+      .update({ titulo, descripcion, fecha_recordatorio, frecuencia })
+      .eq('idrecordatorio', idrecordatorio)
+      .select()
+      .single();
+
+    if (error) {
+      console.error('Error al actualizar el recordatorio en Supabase:', error);
+      return res.status(500).json({ error: 'Error al actualizar el recordatorio.' });
+    }
+
+    res.status(200).json({ message: 'Recordatorio actualizado exitosamente', recordatorio: data });
+  } catch (error) {
+    console.error('Error inesperado al actualizar el recordatorio:', error);
+    res.status(500).json({ error: 'Error interno del servidor al actualizar el recordatorio.' });
+  }
 });
 
 // 🗑️ Eliminar recordatorio
-app.delete('/recordatorios/:id', async (req, res) => {
-  const { id } = req.params;
+app.delete('/recordatorios/:idrecordatorio', verificarToken, async (req, res) => {
+  const { idrecordatorio } = req.params;
+  const idusuario = req.user.idusuario;
 
-  try {
-    await db.recordatorio.delete({
-      where: { id: parseInt(id) },
-    });
-    res.status(204).send();
-  } catch (error) {
-    console.error('Error al eliminar el recordatorio:', error);
-    res.status(500).json({ error: 'Error interno al eliminar el recordatorio.' });
-  }
+  if (!idrecordatorio) {
+    return res.status(400).json({ error: 'ID del recordatorio es requerido para eliminar.' });
+  }
+
+  try {
+    // Primero, verificar que el recordatorio pertenece al usuario autenticado
+    const { data: existingReminder, error: fetchError } = await supabase
+      .from('recordatorios')
+      .select('idusuario')
+      .eq('idrecordatorio', idrecordatorio)
+      .single();
+
+    if (fetchError || !existingReminder) {
+      return res.status(404).json({ error: 'Recordatorio no encontrado.' });
+    }
+    if (existingReminder.idusuario !== idusuario) {
+      return res.status(403).json({ error: 'No tienes permiso para eliminar este recordatorio.' });
+    }
+
+    const { error } = await supabase
+      .from('recordatorios')
+      .delete()
+      .eq('idrecordatorio', idrecordatorio);
+
+    if (error) {
+      console.error('Error al eliminar el recordatorio en Supabase:', error);
+      return res.status(500).json({ error: 'Error al eliminar el recordatorio.' });
+    }
+
+    res.status(204).send(); // 204 No Content para eliminación exitosa
+  } catch (error) {
+    console.error('Error inesperado al eliminar el recordatorio:', error);
+    res.status(500).json({ error: 'Error interno del servidor al eliminar el recordatorio.' });
+  }
 });
 
 // Iniciar servidor
