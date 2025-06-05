@@ -545,6 +545,97 @@ app.delete('/eventos/:idevento', verificarToken, async (req, res) => {
   }
 });
 
+// 👤 Registrar nuevo usuario
+app.post('/register', async (req, res) => {
+  const { nombre, apellidos, correo_electronico, contrasena, fecha_nacimiento, telefono } = req.body;
+
+  // Validar campos requeridos
+  if (!nombre || !correo_electronico || !contrasena) {
+    return res.status(400).json({ error: 'Los campos nombre, correo y contraseña son obligatorios' });
+  }
+
+  // Validar formato de correo electrónico
+  const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+  if (!emailRegex.test(correo_electronico)) {
+    return res.status(400).json({ error: 'Formato de correo electrónico inválido' });
+  }
+
+  // Validar contraseña segura (mínimo 8 caracteres, mayúsculas, minúsculas, números y caracteres especiales)
+  const passwordRegex = /^(?=.*[a-z])(?=.*[A-Z])(?=.*\d)(?=.*[@$!%*?&])[A-Za-z\d@$!%*?&]{8,}$/;
+  if (!passwordRegex.test(contrasena)) {
+    return res.status(400).json({ 
+      error: 'La contraseña debe tener al menos 8 caracteres, incluir mayúsculas, minúsculas, números y caracteres especiales' 
+    });
+  }
+
+  try {
+    // Verificar si el correo ya existe
+    const { data: existingUser, error: searchError } = await supabase
+      .from('usuarios')
+      .select('correo_electronico')
+      .eq('correo_electronico', correo_electronico)
+      .single();
+
+    if (searchError && searchError.code !== 'PGRST116') {
+      console.error('Error al buscar usuario existente:', searchError);
+      return res.status(500).json({ error: 'Error al verificar disponibilidad del correo' });
+    }
+
+    if (existingUser) {
+      return res.status(400).json({ error: 'El correo electrónico ya está registrado' });
+    }
+
+    // Crear el nuevo usuario
+    const { data, error } = await supabase
+      .from('usuarios')
+      .insert([{
+        nombre,
+        apellidos,
+        correo_electronico,
+        contrasena,
+        fecha_nacimiento,
+        telefono,
+        fecha_creacion: new Date().toISOString(),
+        rol: 'usuario' // Rol por defecto para nuevos usuarios
+      }])
+      .select()
+      .single();
+
+    if (error) {
+      console.error('Error al crear usuario:', error);
+      return res.status(500).json({ error: 'Error al registrar usuario' });
+    }
+
+    // Generar token JWT para el nuevo usuario
+    const token = jwt.sign(
+      {
+        idusuario: data.idusuario,
+        correo_electronico: data.correo_electronico,
+        rol: data.rol
+      },
+      JWT_SECRET,
+      { expiresIn: '24h' }
+    );
+
+    // Enviar respuesta exitosa
+    res.status(201).json({
+      message: 'Usuario registrado exitosamente',
+      token,
+      userId: data.idusuario,
+      nombre: data.nombre,
+      correo_electronico: data.correo_electronico,
+      rol: data.rol
+    });
+
+  } catch (error) {
+    console.error('Error inesperado al registrar usuario:', error);
+    res.status(500).json({ error: 'Error interno del servidor' });
+  }
+});
+
+app.listen(PORT, () => {
+  console.log(`Servidor escuchando en el puerto ${PORT}`);
+});
 
 app.listen(PORT, () => {
   console.log(`Servidor escuchando en el puerto ${PORT}`);
